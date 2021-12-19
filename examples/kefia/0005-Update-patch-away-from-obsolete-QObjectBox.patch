@@ -25,7 +25,7 @@ index ce4fba3..f0a8807 100644
          ..Default::default()
      });
 -    engine.set_object_property("qpkgs".into(), qpckgs.pinned());
-+    let packages_pinned = unsafe { QObjectPinned::new(&packages) };
++    let packages_pinned = std::pin::Pin::new(&packages);
 +    engine.set_object_property("qpkgs".into(), packages_pinned);
      engine.set_property("repos".into(), qrepos.into());
      engine.set_property("groups".into(), qgroups.into());

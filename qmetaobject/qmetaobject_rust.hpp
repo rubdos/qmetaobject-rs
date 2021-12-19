@@ -129,8 +129,8 @@ static constexpr int QtJambi_EventType_DeleteOnMainThread = 513;
 
 template <typename Base>
 struct RustObject : Base {
-    TraitObject rust_object;  // A QObjectPinned<XXX> where XXX is the base trait
-    TraitObject ptr_qobject;  // a QObjectPinned<QObject>
+    TraitObject rust_object;  // A std::pin::Pin<XXX> where XXX is the base trait
+    TraitObject ptr_qobject;  // a std::pin::Pin<QObject>
     void (*extra_destruct)(QObject *);
     const QMetaObject *metaObject() const override {
         return ptr_qobject.isValid() ? RustObject_metaObject(ptr_qobject) : Base::metaObject();
