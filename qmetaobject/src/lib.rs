@@ -219,8 +219,8 @@ pub mod prelude {
     pub use crate::{
         qml_register_type, qrc, qt_base_class, qt_method, qt_plugin, qt_property, qt_signal,
         QAbstractListModel, QByteArray, QColor, QDate, QDateTime, QEnum, QModelIndex, QObject,
-        QObjectBox, QPointer, QQmlExtensionPlugin, QQuickItem, QQuickView, QRectF, QString, QTime,
-        QVariant, QmlEngine,
+        QPointer, QQmlExtensionPlugin, QQuickItem, QQuickView, QRectF, QString, QTime, QVariant,
+        QmlEngine,
     };
 }
 
@@ -548,27 +548,6 @@ impl<'pin, T: QObject + 'pin> From<QObjectPinned<'pin, T>> for QVariant {
         cpp!(unsafe [x as "QObject *"] -> QVariant as "QVariant" {
             return QVariant::fromValue(x);
         })
-    }
-}
-
-/// A wrapper around RefCell<T>, whose content cannot be move in memory
-pub struct QObjectBox<T: QObject + ?Sized>(Box<RefCell<T>>);
-
-impl<T: QObject> QObjectBox<T> {
-    pub fn new(obj: T) -> Self {
-        QObjectBox(Box::new(RefCell::new(obj)))
-    }
-}
-
-impl<T: QObject + Default> Default for QObjectBox<T> {
-    fn default() -> Self {
-        Self::new(Default::default())
-    }
-}
-
-impl<T: QObject + ?Sized> QObjectBox<T> {
-    pub fn pinned(&self) -> QObjectPinned<T> {
-        unsafe { QObjectPinned::new(&self.0) }
     }
 }
 
