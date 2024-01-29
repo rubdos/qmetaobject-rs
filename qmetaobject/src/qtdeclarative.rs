@@ -175,7 +175,7 @@ impl QmlEngine {
 
     /// Sets an object for this QML context (calls QQmlEngine::rootContext()->setContextObject)
     pub fn set_object<T: QObject + Sized>(&mut self, obj: QObjectPinned<T>) {
-        let obj_ptr = obj.get_or_create_cpp_object();
+        let obj_ptr = crate::get_or_create_cpp_object(obj);
         cpp!(unsafe [self as "QmlEngineHolder *", obj_ptr as "QObject *"] {
             self->engine->rootContext()->setContextObject(obj_ptr);
         })
@@ -189,7 +189,7 @@ impl QmlEngine {
         name: QString,
         obj: QObjectPinned<T>,
     ) {
-        let obj_ptr = obj.get_or_create_cpp_object();
+        let obj_ptr = crate::get_or_create_cpp_object(obj);
         cpp!(unsafe [self as "QmlEngineHolder *", name as "QString", obj_ptr as "QObject *"] {
             self->engine->rootContext()->setContextProperty(name, obj_ptr);
         })
@@ -551,7 +551,7 @@ pub fn qml_register_singleton_type<T: QObject + QSingletonInit + Sized + Default
     ) -> *mut c_void {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let obj_box: Box<RefCell<T>> = Box::new(RefCell::new(T::default()));
-            let obj_ptr = unsafe { T::cpp_construct(&obj_box) };
+            let obj_ptr = unsafe { T::cpp_construct(Pin::new_unchecked(obj_box.as_ref())) };
             obj_box.borrow_mut().init();
             Box::leak(obj_box);
             obj_ptr
@@ -646,8 +646,7 @@ pub fn qml_register_singleton_instance<T: QObject + Sized + Default>(
     let type_name_ptr = type_name.as_ptr();
 
     let obj_box = Box::new(RefCell::new(obj));
-    let obj_ptr = unsafe { T::cpp_construct(&obj_box) };
-    Box::leak(obj_box);
+    let obj_ptr = unsafe { T::cpp_construct(Pin::new_unchecked(Box::leak(obj_box) as &_)) };
 
     cpp!(unsafe [
             uri_ptr as "char *",

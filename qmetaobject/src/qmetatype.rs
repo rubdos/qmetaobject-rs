@@ -544,9 +544,9 @@ where
     }
 
     unsafe fn pass_to_qt(&mut self, a: *mut c_void) {
-        let pinned = QObjectPinned::new(self);
+        let pinned = QObjectPinned::new_unchecked(self);
         let r = a as *mut *const c_void;
-        *r = pinned.get_or_create_cpp_object()
+        *r = crate::get_or_create_cpp_object(pinned)
     }
 
     unsafe fn read_from_qt(_a: *const c_void) -> Self {
@@ -566,7 +566,7 @@ where
         let pinned = self.as_pinned();
         let r = a as *mut *const c_void;
         match pinned {
-            Some(pinned) => *r = pinned.get_or_create_cpp_object(),
+            Some(pinned) => *r = crate::get_or_create_cpp_object(pinned),
             None => *r = std::ptr::null(),
         }
     }
@@ -576,8 +576,9 @@ where
         if a.is_null() || (*r).is_null() {
             Self::default()
         } else {
-            let obj = T::get_from_cpp(*r);
-            obj.borrow().into()
+            let _obj = T::get_from_cpp(*r);
+            // obj.borrow().into()
+            unimplemented!()
         }
     }
 }

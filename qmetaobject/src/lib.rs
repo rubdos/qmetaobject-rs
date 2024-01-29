@@ -101,7 +101,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     Once an object that derives from QObject is exposed to C++, it needs to be pinned, and cannot
     be moved in memory.
     Also, since the Qt code can be re-entrant, the object must be placed in a RefCell.
-    The [QObjectPinned](struct.QObjectPinned.html) object is used to enforce the pinning.
+    The [QObjectPinned] object is used to enforce the pinning.
 
     If you want to keep pointer to reference, you can use [QPointer](struct.QPointer.html).
 
@@ -310,19 +310,19 @@ pub trait QObject {
     /// Construct the C++ Object.
     ///
     /// Note, once this function is called, the object must not be moved in memory.
-    unsafe fn cpp_construct(pined: &RefCell<Self>) -> *mut c_void
+    unsafe fn cpp_construct_unchecked(pinned: &RefCell<Self>) -> *mut c_void
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Self::cpp_construct(Pin::new_unchecked(pinned))
+    }
 
     /// Construct the C++ Object.
     ///
     /// Note, once this function is called, the object must not be moved in memory.
-    fn cpp_construct_pinned(pinned: Pin<&RefCell<Self>>) -> *mut c_void
+    fn cpp_construct(pinned: Pin<&RefCell<Self>>) -> *mut c_void
     where
-        Self: Sized,
-    {
-        unsafe { Self::cpp_construct(Pin::into_inner_unchecked(pinned)) }
-    }
+        Self: Sized;
 
     /// Construct the C++ Object, suitable for callbacks to construct QML objects.
     unsafe fn qml_construct(
@@ -445,6 +445,21 @@ impl<T: QObject> QPointer<T> {
     }
 }
 
+// XXX I don't think this should be safe.
+// impl<'a, T: QObject + ?Sized> From<std::cell::Ref<'a, T>> for QPointer<T> {
+//     /// Creates a QPointer from a reference to a QObject.
+//     /// The corresponding C++ object must have already been created.
+//     fn from(obj: std::cell::Ref<'a, T>) -> Self {
+//         let cpp_obj = obj.get_cpp_object();
+//         QPointer(
+//             cpp!(unsafe [cpp_obj as "QObject *"] -> QPointerImpl  as "QPointer<QObject>" {
+//                 return cpp_obj; // implicit constructor
+//             }),
+//             obj.as_ref() as *const T,
+//         )
+//     }
+// }
+
 impl<'a, T: QObject + ?Sized> From<&'a T> for QPointer<T> {
     /// Creates a QPointer from a reference to a QObject.
     /// The corresponding C++ object must have already been created.
@@ -504,15 +519,15 @@ impl<'b, T: QObject + ?Sized + 'b> Drop for QObjectRefMut<'b, T> {
     }
 }
 
-/// A reference to a RefCell<T>, where T is a QObject, which does not move in memory
-#[repr(transparent)]
+/// A pinned RefCell<T>, where T is a QObject, which does not move in memory
+/// This is a type alias, but used to be a type wrapper that enforces `T: QObject + ?Sized + 'pin`.
 // Originally this used to be a newtype around a RefCell
 // // pub struct QObjectPinned<'pin, T: QObject + ?Sized + 'pin>(&'pin RefCell<T>);
 // Ideally, this would be a type wrapper.
-// // pub type QObjectPinned<'pin, T: QObject + ?Sized + 'pin> = Pin<&'pin RefCell<T>>;
+pub type QObjectPinned<'pin, T> = Pin<&'pin RefCell<T>>;
 // But for now, we keep this as a newtype around std's Pin.
-#[derive(Clone, Copy)]
-pub struct QObjectPinned<'pin, T: QObject + ?Sized + 'pin>(Pin<&'pin RefCell<T>>);
+// #[derive(Clone, Copy)]
+// pub struct QObjectPinned<'pin, T: QObject + ?Sized + 'pin>(Pin<&'pin RefCell<T>>);
 
 // impl<'pin, T: QObject + ?Sized + 'pin> std::ops::Deref for QObjectPinned<'pin, T> {
 //     type Target = Pin<&'pin RefCell<T>>;
@@ -528,53 +543,43 @@ pub struct QObjectPinned<'pin, T: QObject + ?Sized + 'pin>(Pin<&'pin RefCell<T>>
 //     }
 // }
 
-impl<'pin, T: QObject + ?Sized + 'pin> QObjectPinned<'pin, T> {
-    /// Borrow the object
-    // FIXME: there are too many cases for which we want reentrance after borrowing
-    //pub fn borrow(&self) -> std::cell::Ref<T> { self.0.borrow() }
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::should_implement_trait))]
-    pub fn borrow(&self) -> &T {
-        unsafe { &*self.0.as_ptr() }
-    }
-    pub fn borrow_mut(&self) -> QObjectRefMut<T> {
-        let x = self.0.borrow_mut();
-        QObjectRefMut { old_value: x.get_cpp_object(), inner: x }
-    }
-    pub fn as_ptr(&self) -> *mut T {
-        self.0.as_ptr()
-    }
-}
+// impl<'pin, T: QObject + ?Sized + 'pin> QObjectPinned<'pin, T> {
+//     /// Borrow the object
+//     // FIXME: there are too many cases for which we want reentrance after borrowing
+//     //pub fn borrow(&self) -> std::cell::Ref<T> { self.0.borrow() }
+//     #[cfg_attr(feature = "cargo-clippy", allow(clippy::should_implement_trait))]
+//     pub fn borrow(&self) -> &T {
+//         unsafe { &*self.0.as_ptr() }
+//     }
+//     pub fn borrow_mut(&self) -> QObjectRefMut<T> {
+//         let x = self.0.borrow_mut();
+//         QObjectRefMut { old_value: x.get_cpp_object(), inner: x }
+//     }
+//     pub fn as_ptr(&self) -> *mut T {
+//         self.0.as_ptr()
+//     }
+// }
+//
+// impl<'pin, T: QObject + ?Sized + 'pin> QObjectPinned<'pin, T> {
+//     /// Internal function used from the code generated by the QObject derive macro.
+//     ///
+//     /// # Safety
+//     /// Unsafe because one must ensure it does not move in memory.
+//     /// The same safety rules of [std::pin::Pin::new_unchecked] apply.
+//     pub unsafe fn new(inner: &'pin RefCell<T>) -> Self {
+//         QObjectPinned(Pin::new_unchecked(inner))
+//     }
+// }
 
-impl<'pin, T: QObject + ?Sized + 'pin> QObjectPinned<'pin, T> {
-    /// Internal function used from the code generated by the QObject derive macro.
-    ///
-    /// # Safety
-    /// Unsafe because one must ensure it does not move in memory.
-    /// The same safety rules of [std::pin::Pin::new_unchecked] apply.
-    pub unsafe fn new(inner: &'pin RefCell<T>) -> Self {
-        QObjectPinned(Pin::new_unchecked(inner))
-    }
-}
-
-impl<'pin, T: QObject + 'pin> QObjectPinned<'pin, T> {
-    /// Get the pointer to the C++ Object, or create it if it was not yet created
-    pub fn get_or_create_cpp_object(self) -> *mut c_void {
-        // XXX correctness?
-        let r = unsafe { &*self.0.as_ptr() }.get_cpp_object();
-        if r.is_null() {
-            QObject::cpp_construct_pinned(self.0)
-        } else {
-            r
-        }
-    }
-}
-
-impl<'pin, T: QObject + 'pin> From<QObjectPinned<'pin, T>> for QVariant {
-    fn from(obj: QObjectPinned<'pin, T>) -> Self {
-        let x = obj.get_or_create_cpp_object();
-        cpp!(unsafe [x as "QObject *"] -> QVariant as "QVariant" {
-            return QVariant::fromValue(x);
-        })
+pub fn get_or_create_cpp_object<'pin, T: QObject + 'pin>(
+    qobj: QObjectPinned<'pin, T>,
+) -> *mut c_void {
+    // XXX correctness?
+    let r = unsafe { &*qobj.as_ptr() }.get_cpp_object();
+    if r.is_null() {
+        QObject::cpp_construct(qobj)
+    } else {
+        r
     }
 }
 
@@ -586,7 +591,10 @@ impl<'pin, T: QObject + 'pin> From<QObjectPinned<'pin, T>> for QVariant {
 /// Panics if the C++ object was already created.
 pub fn into_leaked_cpp_ptr<T: QObject>(obj: T) -> *mut c_void {
     let b = Box::new(RefCell::new(obj));
-    let obj_ptr = unsafe { QObject::cpp_construct(&b) };
+    // XXX what is wrong here with `Pin::new_unchecked(b.leak())` ?
+    // XXX Maybe this `unchecked` should bubble up to the API (either T: Unpin or
+    // into_leaked..._unchecked)
+    let obj_ptr = unsafe { QObject::cpp_construct(Pin::new_unchecked(b.as_ref())) };
     Box::into_raw(b);
     obj_ptr
 }
